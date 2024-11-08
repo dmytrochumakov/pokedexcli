@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 type PokedexResponseModel struct {
@@ -138,11 +140,12 @@ func main() {
 				fmt.Println("Usage: explore <text>")
 			} else {
 				area := args[1]
+				var pokemonReponseModel PokemonReponseModel
 				fmt.Println("Exploring" + area + "...")
 				fmt.Println("Found Pokemon:")
 
 				if dataFromCaching, exists := cache.Get(area); exists {
-					if err := json.Unmarshal(dataFromCaching, &pokedexResponseModel); err != nil {
+					if err := json.Unmarshal(dataFromCaching, &pokemonReponseModel); err != nil {
 						fmt.Println(err)
 						return
 					}
@@ -156,7 +159,6 @@ func main() {
 					}
 					defer resp.Body.Close()
 
-					var pokemonReponseModel PokemonReponseModel
 					decoder := json.NewDecoder(resp.Body)
 					err = decoder.Decode(&pokemonReponseModel)
 
@@ -172,12 +174,64 @@ func main() {
 					}
 
 					cache.Add(area, dataForCaching)
-
-					for _, pokemon := range pokemonReponseModel.PokemonEncounters {
-						fmt.Println(" - " + pokemon.Pokemon.Name)
-					}
 				}
+
+				for _, pokemon := range pokemonReponseModel.PokemonEncounters {
+					fmt.Println(" - " + pokemon.Pokemon.Name)
+				}
+			}
+
+		case "catch":
+			if len(args) < 2 {
+				fmt.Println("Usage: catch <text>")
+			} else {
+				var pokemon Pokemon
+				pokemonName := args[1]
+				if dataFromCaching, exists := cache.Get(pokemonName); exists {
+					if err := json.Unmarshal(dataFromCaching, &pokemon); err != nil {
+						fmt.Println(err)
+						return
+					}
+
+				} else {
+					pokemonURL := "https://pokeapi.co/api/v2/pokemon/" + pokemonName
+
+					resp, err := http.Get(pokemonURL)
+
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+					defer resp.Body.Close()
+
+					decoder := json.NewDecoder(resp.Body)
+					err = decoder.Decode(&pokemon)
+
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+
+				}
+
+				rand.Seed(time.Now().UnixNano())
+				baseCatchChanse := 0.5
+				catchChanse := baseCatchChanse * (1 - float64(pokemon.BaseExperience)/1000)
+				catchRoll := rand.Float64()
+				isPokemonCaught := catchRoll <= catchChanse
+				fmt.Println("Throwing a Pokeball at " + pokemonName + "...")
+
+				if isPokemonCaught {
+					fmt.Println(pokemonName + " was caught!")
+				} else {
+					fmt.Println(pokemonName + " escaped!")
+				}
+
 			}
 		}
 	}
+}
+
+type Pokemon struct {
+	BaseExperience int `json:"base_experience"`
 }
