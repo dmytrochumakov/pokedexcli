@@ -37,6 +37,9 @@ func (c *Cache) Add(key string, val []byte) {
 }
 
 func (c *Cache) Get(key string) ([]byte, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	data, exists := c.data[key]
 	if !exists {
 		return nil, false

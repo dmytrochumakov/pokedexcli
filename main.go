@@ -223,15 +223,69 @@ func main() {
 
 				if isPokemonCaught {
 					fmt.Println(pokemonName + " was caught!")
+					dataForCaching, err := json.Marshal(pokemon)
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+
+					cache.Add(pokemonName, dataForCaching)
 				} else {
 					fmt.Println(pokemonName + " escaped!")
 				}
 
+			}
+		case "inspect":
+			if len(args) < 2 {
+				fmt.Println("Usage: inspect <text>")
+			} else {
+				var pokemon Pokemon
+				pokemonName := args[1]
+				if dataFromCaching, exists := cache.Get(pokemonName); exists {
+					if err := json.Unmarshal(dataFromCaching, &pokemon); err != nil {
+						fmt.Println(err)
+						return
+					}
+
+					fmt.Println("Name: " + pokemon.Name)
+					fmt.Println("Height: " + string(pokemon.Height))
+					fmt.Println("Weight: " + string(pokemon.Weight))
+
+					for _, stat := range pokemon.Stats {
+						fmt.Println("Stats:")
+						fmt.Println("	-" + stat.Stat.Name + ": " + string(stat.BaseStat))
+					}
+					for _, typeS := range pokemon.Types {
+						fmt.Println("Types:")
+						fmt.Println("	-" + typeS.Type.Name + ": " + string(typeS.Slot))
+					}
+
+				} else {
+					fmt.Println("pokemon with name: " + pokemonName + " does not exists in cache")
+				}
 			}
 		}
 	}
 }
 
 type Pokemon struct {
-	BaseExperience int `json:"base_experience"`
+	BaseExperience int    `json:"base_experience"`
+	Height         int    `json:"height"`
+	Name           string `json:"name"`
+	Stats          []struct {
+		BaseStat int `json:"base_stat"`
+		Effort   int `json:"effort"`
+		Stat     struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"stat"`
+	} `json:"stats"`
+	Types []struct {
+		Slot int `json:"slot"`
+		Type struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"type"`
+	} `json:"types"`
+	Weight int `json:"weight"`
 }
