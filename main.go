@@ -24,6 +24,7 @@ func main() {
 	const initialURL = "https://pokeapi.co/api/v2/location-area?offset=0&limit=20"
 	url := initialURL
 	var pokedexResponseModel PokedexResponseModel
+	cache := NewCache(5)
 
 	for {
 		fmt.Print("Pokedex > ")
@@ -53,21 +54,37 @@ func main() {
 			if pokedexResponseModel.Next != "" {
 				url = pokedexResponseModel.Next
 			}
-			resp, err := http.Get(url)
+			if dataFromCaching, exists := cache.Get(url); exists {
+				if err := json.Unmarshal(dataFromCaching, &pokedexResponseModel); err != nil {
+					fmt.Println(err)
+					return
+				}
 
+			} else {
+				resp, err := http.Get(url)
+
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+				defer resp.Body.Close()
+
+				decoder := json.NewDecoder(resp.Body)
+				err = decoder.Decode(&pokedexResponseModel)
+
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+			}
+
+			dataForCaching, err := json.Marshal(pokedexResponseModel)
 			if err != nil {
 				fmt.Println(err)
 				return
 			}
-			defer resp.Body.Close()
 
-			decoder := json.NewDecoder(resp.Body)
-			err = decoder.Decode(&pokedexResponseModel)
-
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
+			cache.Add(url, dataForCaching)
 
 			for _, result := range pokedexResponseModel.Results {
 				fmt.Println(result.Name)
@@ -78,21 +95,29 @@ func main() {
 				fmt.Println("you are already on the first page")
 				break
 			}
-			url = pokedexResponseModel.Previous
-			resp, err := http.Get(url)
+			if dataFromCaching, exists := cache.Get(url); exists {
+				if err := json.Unmarshal(dataFromCaching, &pokedexResponseModel); err != nil {
+					fmt.Println(err)
+					return
+				}
 
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			defer resp.Body.Close()
+			} else {
+				url = pokedexResponseModel.Previous
+				resp, err := http.Get(url)
 
-			decoder := json.NewDecoder(resp.Body)
-			err = decoder.Decode(&pokedexResponseModel)
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+				defer resp.Body.Close()
 
-			if err != nil {
-				fmt.Println(err)
-				return
+				decoder := json.NewDecoder(resp.Body)
+				err = decoder.Decode(&pokedexResponseModel)
+
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
 			}
 
 			for _, result := range pokedexResponseModel.Results {
