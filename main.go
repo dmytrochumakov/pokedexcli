@@ -19,6 +19,15 @@ type PokedexResponseModel struct {
 	} `json:"results"`
 }
 
+type PokemonReponseModel struct {
+	PokemonEncounters []struct {
+		Pokemon struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"pokemon"`
+	} `json:"pokemon_encounters"`
+}
+
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	const initialURL = "https://pokeapi.co/api/v2/location-area?offset=0&limit=20"
@@ -122,6 +131,52 @@ func main() {
 
 			for _, result := range pokedexResponseModel.Results {
 				fmt.Println(result.Name)
+			}
+
+		case "explore":
+			if len(args) < 2 {
+				fmt.Println("Usage: explore <text>")
+			} else {
+				area := args[1]
+				fmt.Println("Exploring" + area + "...")
+				fmt.Println("Found Pokemon:")
+
+				if dataFromCaching, exists := cache.Get(area); exists {
+					if err := json.Unmarshal(dataFromCaching, &pokedexResponseModel); err != nil {
+						fmt.Println(err)
+						return
+					}
+
+				} else {
+					resp, err := http.Get("https://pokeapi.co/api/v2/location-area/" + area + "?offset=0&limit=20")
+
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+					defer resp.Body.Close()
+
+					var pokemonReponseModel PokemonReponseModel
+					decoder := json.NewDecoder(resp.Body)
+					err = decoder.Decode(&pokemonReponseModel)
+
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+
+					dataForCaching, err := json.Marshal(pokemonReponseModel)
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+
+					cache.Add(area, dataForCaching)
+
+					for _, pokemon := range pokemonReponseModel.PokemonEncounters {
+						fmt.Println(" - " + pokemon.Pokemon.Name)
+					}
+				}
 			}
 		}
 	}
