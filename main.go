@@ -138,6 +138,11 @@ func main() {
 					fmt.Println("  -", typeInfo.Type.Name)
 				}
 			}
+
+		case "pokedex":
+			for _, caughtPokemon := range cfg.caughtPokemon {
+				fmt.Printf(" - %s\n", caughtPokemon.Name)
+			}
 		}
 	}
 }
