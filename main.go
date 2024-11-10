@@ -2,40 +2,29 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"math/rand"
-	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/dmytrochumakov/pokedexcli/internal/pokeapi"
 )
 
-type PokedexResponseModel struct {
-	Count    int    `json:"count"`
-	Next     string `json:"next"`
-	Previous string `json:"previous"`
-	Results  []struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	} `json:"results"`
-}
-
-type PokemonReponseModel struct {
-	PokemonEncounters []struct {
-		Pokemon struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"pokemon"`
-	} `json:"pokemon_encounters"`
+type config struct {
+	apiClient        pokeapi.Client
+	nextLocationsURL *string
+	prevLocationsURL *string
+	caughtPokemon    map[string]pokeapi.Pokemon
 }
 
 func main() {
 	scanner := bufio.NewScanner(os.Stdin)
-	const initialURL = "https://pokeapi.co/api/v2/location-area?offset=0&limit=20"
-	url := initialURL
-	var pokedexResponseModel PokedexResponseModel
-	cache := NewCache(5)
+	client := pokeapi.NewClient(5*time.Second, 5*time.Minute)
+	cfg := &config{
+		caughtPokemon: map[string]pokeapi.Pokemon{},
+		apiClient:     client,
+	}
 
 	for {
 		fmt.Print("Pokedex > ")
@@ -62,121 +51,42 @@ func main() {
 			return
 
 		case "map":
-			if pokedexResponseModel.Next != "" {
-				url = pokedexResponseModel.Next
+			locationsResp, err := cfg.apiClient.ListLocations(cfg.nextLocationsURL)
+			if err != nil {
+				fmt.Println(err)
+				return
 			}
-			if dataFromCaching, exists := cache.Get(url); exists {
-				if err := json.Unmarshal(dataFromCaching, &pokedexResponseModel); err != nil {
-					fmt.Println(err)
-					return
-				}
-
-			} else {
-				resp, err := http.Get(url)
-
-				if err != nil {
-					fmt.Println(err)
-					return
-				}
-				defer resp.Body.Close()
-
-				decoder := json.NewDecoder(resp.Body)
-				err = decoder.Decode(&pokedexResponseModel)
-
-				if err != nil {
-					fmt.Println(err)
-					return
-				}
+			for _, locatiun := range locationsResp.Results {
+				fmt.Println(locatiun.Name)
 			}
 
-			dataForCaching, err := json.Marshal(pokedexResponseModel)
+		case "mapb":
+			if cfg.prevLocationsURL == nil {
+				fmt.Println("you are alredy on first page")
+			}
+
+			locationsResp, err := cfg.apiClient.ListLocations(cfg.nextLocationsURL)
 			if err != nil {
 				fmt.Println(err)
 				return
 			}
 
-			cache.Add(url, dataForCaching)
-
-			for _, result := range pokedexResponseModel.Results {
-				fmt.Println(result.Name)
-			}
-
-		case "mapb":
-			if url == initialURL {
-				fmt.Println("you are already on the first page")
-				break
-			}
-			if dataFromCaching, exists := cache.Get(url); exists {
-				if err := json.Unmarshal(dataFromCaching, &pokedexResponseModel); err != nil {
-					fmt.Println(err)
-					return
-				}
-
-			} else {
-				url = pokedexResponseModel.Previous
-				resp, err := http.Get(url)
-
-				if err != nil {
-					fmt.Println(err)
-					return
-				}
-				defer resp.Body.Close()
-
-				decoder := json.NewDecoder(resp.Body)
-				err = decoder.Decode(&pokedexResponseModel)
-
-				if err != nil {
-					fmt.Println(err)
-					return
-				}
-			}
-
-			for _, result := range pokedexResponseModel.Results {
-				fmt.Println(result.Name)
+			for _, location := range locationsResp.Results {
+				fmt.Println(location.Name)
 			}
 
 		case "explore":
 			if len(args) < 2 {
 				fmt.Println("Usage: explore <text>")
 			} else {
-				area := args[1]
-				var pokemonReponseModel PokemonReponseModel
-				fmt.Println("Exploring" + area + "...")
-				fmt.Println("Found Pokemon:")
-
-				if dataFromCaching, exists := cache.Get(area); exists {
-					if err := json.Unmarshal(dataFromCaching, &pokemonReponseModel); err != nil {
-						fmt.Println(err)
-						return
-					}
-
-				} else {
-					resp, err := http.Get("https://pokeapi.co/api/v2/location-area/" + area + "?offset=0&limit=20")
-
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
-					defer resp.Body.Close()
-
-					decoder := json.NewDecoder(resp.Body)
-					err = decoder.Decode(&pokemonReponseModel)
-
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
-
-					dataForCaching, err := json.Marshal(pokemonReponseModel)
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
-
-					cache.Add(area, dataForCaching)
+				pokemonName := args[1]
+				fmt.Println("pokemon nam: " + pokemonName)
+				location, err := cfg.apiClient.GetLocation(pokemonName)
+				if err != nil {
+					fmt.Println(err)
+					return
 				}
-
-				for _, pokemon := range pokemonReponseModel.PokemonEncounters {
+				for _, pokemon := range location.PokemonEncounters {
 					fmt.Println(" - " + pokemon.Pokemon.Name)
 				}
 			}
@@ -185,107 +95,49 @@ func main() {
 			if len(args) < 2 {
 				fmt.Println("Usage: catch <text>")
 			} else {
-				var pokemon Pokemon
 				pokemonName := args[1]
-				if dataFromCaching, exists := cache.Get(pokemonName); exists {
-					if err := json.Unmarshal(dataFromCaching, &pokemon); err != nil {
-						fmt.Println(err)
-						return
-					}
-
-				} else {
-					pokemonURL := "https://pokeapi.co/api/v2/pokemon/" + pokemonName
-
-					resp, err := http.Get(pokemonURL)
-
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
-					defer resp.Body.Close()
-
-					decoder := json.NewDecoder(resp.Body)
-					err = decoder.Decode(&pokemon)
-
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
-
+				pokemon, err := cfg.apiClient.GetPokemon(pokemonName)
+				if err != nil {
+					fmt.Println(err)
+					return
 				}
 
-				rand.Seed(time.Now().UnixNano())
-				baseCatchChanse := 0.5
-				catchChanse := baseCatchChanse * (1 - float64(pokemon.BaseExperience)/1000)
-				catchRoll := rand.Float64()
-				isPokemonCaught := catchRoll <= catchChanse
-				fmt.Println("Throwing a Pokeball at " + pokemonName + "...")
+				res := rand.Intn(pokemon.BaseExperience)
 
-				if isPokemonCaught {
-					fmt.Println(pokemonName + " was caught!")
-					dataForCaching, err := json.Marshal(pokemon)
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
+				fmt.Printf("Throwing a Pokeball at %s...\n", pokemon.Name)
 
-					cache.Add(pokemonName, dataForCaching)
-				} else {
-					fmt.Println(pokemonName + " escaped!")
+				if res > 40 {
+					fmt.Printf("%s escaped!\n", pokemon.Name)
+					break
 				}
 
+				fmt.Printf("%s was caught!\n", pokemon.Name)
+				cfg.caughtPokemon[pokemon.Name] = pokemon
 			}
+
 		case "inspect":
 			if len(args) < 2 {
 				fmt.Println("Usage: inspect <text>")
 			} else {
-				var pokemon Pokemon
 				pokemonName := args[1]
-				if dataFromCaching, exists := cache.Get(pokemonName); exists {
-					if err := json.Unmarshal(dataFromCaching, &pokemon); err != nil {
-						fmt.Println(err)
-						return
-					}
+				pokemon, ok := cfg.caughtPokemon[pokemonName]
+				if !ok {
+					fmt.Println("you have no caught pokemons with that name")
+					break
+				}
 
-					fmt.Println("Name: " + pokemon.Name)
-					fmt.Println("Height: " + string(pokemon.Height))
-					fmt.Println("Weight: " + string(pokemon.Weight))
-
-					for _, stat := range pokemon.Stats {
-						fmt.Println("Stats:")
-						fmt.Println("	-" + stat.Stat.Name + ": " + string(stat.BaseStat))
-					}
-					for _, typeS := range pokemon.Types {
-						fmt.Println("Types:")
-						fmt.Println("	-" + typeS.Type.Name + ": " + string(typeS.Slot))
-					}
-
-				} else {
-					fmt.Println("pokemon with name: " + pokemonName + " does not exists in cache")
+				fmt.Println("Name:", pokemon.Name)
+				fmt.Println("Height:", pokemon.Height)
+				fmt.Println("Weight:", pokemon.Weight)
+				fmt.Println("Stats:")
+				for _, stat := range pokemon.Stats {
+					fmt.Printf("  -%s: %v\n", stat.Stat.Name, stat.BaseStat)
+				}
+				fmt.Println("Types:")
+				for _, typeInfo := range pokemon.Types {
+					fmt.Println("  -", typeInfo.Type.Name)
 				}
 			}
 		}
 	}
-}
-
-type Pokemon struct {
-	BaseExperience int    `json:"base_experience"`
-	Height         int    `json:"height"`
-	Name           string `json:"name"`
-	Stats          []struct {
-		BaseStat int `json:"base_stat"`
-		Effort   int `json:"effort"`
-		Stat     struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"stat"`
-	} `json:"stats"`
-	Types []struct {
-		Slot int `json:"slot"`
-		Type struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"type"`
-	} `json:"types"`
-	Weight int `json:"weight"`
 }
